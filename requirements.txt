@@ -3,6 +3,7 @@ ultralytics
 opencv-python-headless
 Pillow
 numpy
+lap
 python-multipart
 requests
 pandas
