@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
 MODEL_PATH = "yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.4
@@ -1067,80 +1068,50 @@ if source == "Video Inference":
 # ---------------- Webcam Inference mode ----------------
 else:
     st.info("🎥 Live camera or webcam streaming.")
+    model = load_model(selected_model)
+    vehicle_classes = get_vehicle_classes(model)
     
-    # Create session state for camera control
-    if "camera_running" not in st.session_state:
-        st.session_state.camera_running = False
-    
-    # Button layout for camera control
-    col_cam_start, col_cam_stop = st.columns(2)
-    with col_cam_start:
-        if st.button("▶️ Start Live Webcam", type="primary", use_container_width=True):
-            st.session_state.camera_running = True
-    with col_cam_stop:
-        if st.button("⏹️ Stop Live Webcam", type="secondary", use_container_width=True):
-            st.session_state.camera_running = False
-    
-    frame_placeholder = st.empty()
     counts_placeholder = st.empty()
-    status_placeholder = st.empty()
 
-    if st.session_state.camera_running:
-        try:
-            model = load_model(selected_model)
-            vehicle_classes = get_vehicle_classes(model)
+    class VideoProcessor(VideoProcessorBase):
+        def __init__(self):
+            self.boundaries = None
+            self.counts = None
+            self.counted_ids = None
+            self.track_history = None
+            self.track_state = None
 
-            # MINIMAL CHANGE 1: Use browser-native st.camera_input instead of cv2.VideoCapture(0)
-            # This works flawlessly on both local machines and cloud servers.
-            cam_file = st.camera_input("Take snapshot for tracking", label_visibility="collapsed")
-
-            if cam_file is None:
-                status_placeholder.info("📷 Waiting for camera capture stream... Click the button inside the camera box above.")
-            else:
-                status_placeholder.info("✅ Frame captured. Processing tracking inference...")
-                
-                # MINIMAL CHANGE 2: Convert the browser image directly into standard OpenCV frame
-                file_bytes = np.asarray(bytearray(cam_file.read()), dtype=np.uint8)
-                frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-                
-                height = frame.shape[0]
-                boundaries, counts, counted_ids, track_history, track_state = make_tracker_state(
+        def recv(self, frame):
+            img = frame.to_ndarray(format="bgr24")
+            if self.boundaries is None:
+                height = img.shape[0]
+                self.boundaries, self.counts, self.counted_ids, self.track_history, self.track_state = make_tracker_state(
                     height, vehicle_classes, inbound_ratio=inbound_ratio, outbound_ratio=outbound_ratio
                 )
-                
-                frame_count = 0
-                start_time = time.time()
+            annotated_frame = process_frame(
+                model=model,
+                frame=img,
+                vehicle_classes=vehicle_classes,
+                conf_threshold=confidence,
+                boundaries=self.boundaries,
+                counts=self.counts,
+                counted_ids=self.counted_ids,
+                track_history=self.track_history,
+                track_state=self.track_state,
+                draw_trails=True,
+                show_hud=True,
+            )
+            df_webcam = pd.DataFrame([
+                {"Vehicle Type": name.upper(), "IN": c["in"], "OUT": c["out"], "Total": c["in"] + c["out"]}
+                for name, c in self.counts.items()
+                if (c["in"] + c["out"]) > 0 or len(self.counts) <= 6
+            ])
+            counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
+            return frame.from_ndarray(annotated_frame, format="bgr24")
 
-                # MINIMAL CHANGE 3: Process the captured browser frame natively using exact existing code
-                annotated_frame = process_frame(
-                    model=model,
-                    frame=frame,
-                    vehicle_classes=vehicle_classes,
-                    conf_threshold=confidence,
-                    boundaries=boundaries,
-                    counts=counts,
-                    counted_ids=counted_ids,
-                    track_history=track_history,
-                    track_state=track_state,
-                    draw_trails=True,
-                    show_hud=True,
-                )
-                frame_placeholder.image(annotated_frame, channels="BGR", use_container_width=True)
-
-                df_webcam = pd.DataFrame([
-                    {"Vehicle Type": name.upper(), "IN": c["in"], "OUT": c["out"], "Total": c["in"] + c["out"]}
-                    for name, c in counts.items()
-                    if (c["in"] + c["out"]) > 0 or len(counts) <= 6
-                ])
-                counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
-                
-                frame_count += 1
-                elapsed = time.time() - start_time
-                fps = frame_count / elapsed if elapsed > 0 else 0
-                status_placeholder.info(f"✅ Active · Frame processed · FPS: {fps:.1f}")
-
-        except Exception as camera_err:
-            st.error(f"❌ Camera feed error: {camera_err}")
-            st.session_state.camera_running = False
-    else:
-        status_placeholder.write("Webcam is not active. Click 'Start' to begin.")
+    webrtc_streamer(
+        key="traffic-webcam",
+        video_processor_factory=VideoProcessor,
+        media_stream_constraints={"video": True, "audio": False},
+        async_processing=True
+    )
