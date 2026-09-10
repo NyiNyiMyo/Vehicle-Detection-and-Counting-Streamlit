@@ -14,7 +14,6 @@ import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
 
 MODEL_PATH = "yolo11n.pt"
 CONFIDENCE_THRESHOLD = 0.4
@@ -1067,58 +1066,85 @@ if source == "Video Inference":
 
 # ---------------- Webcam Inference mode ----------------
 else:
-    st.info("🎥 Live camera or webcam streaming.")
-    model = load_model(selected_model)
-    vehicle_classes = get_vehicle_classes(model)
+    st.info("🎥 Live camera or webcam streaming (Device 0).")
     
+    # Create session state for camera control
+    if "camera_running" not in st.session_state:
+        st.session_state.camera_running = False
+    
+    # Button layout for camera control
+    col_cam_start, col_cam_stop = st.columns(2)
+    with col_cam_start:
+        if st.button("▶️ Start Live Webcam", type="primary", use_container_width=True):
+            st.session_state.camera_running = True
+    with col_cam_stop:
+        if st.button("⏹️ Stop Live Webcam", type="secondary", use_container_width=True):
+            st.session_state.camera_running = False
+    
+    frame_placeholder = st.empty()
     counts_placeholder = st.empty()
+    status_placeholder = st.empty()
 
-    class VideoProcessor(VideoProcessorBase):
-        def __init__(self):
-            self.boundaries = None
-            self.counts = None
-            self.counted_ids = None
-            self.track_history = None
-            self.track_state = None
+    if st.session_state.camera_running:
+        try:
+            model = load_model(selected_model)
+            vehicle_classes = get_vehicle_classes(model)
+            cap = cv2.VideoCapture(0)
 
-        def recv(self, frame):
-            img = frame.to_ndarray(format="bgr24")
-            if self.boundaries is None:
-                height = img.shape[0]
-                self.boundaries, self.counts, self.counted_ids, self.track_history, self.track_state = make_tracker_state(
-                    height, vehicle_classes, inbound_ratio=inbound_ratio, outbound_ratio=outbound_ratio
-                )
-            annotated_frame = process_frame(
-                model=model,
-                frame=img,
-                vehicle_classes=vehicle_classes,
-                conf_threshold=confidence,
-                boundaries=self.boundaries,
-                counts=self.counts,
-                counted_ids=self.counted_ids,
-                track_history=self.track_history,
-                track_state=self.track_state,
-                draw_trails=True,
-                show_hud=True,
-            )
-            df_webcam = pd.DataFrame([
-                {"Vehicle Type": name.upper(), "IN": c["in"], "OUT": c["out"], "Total": c["in"] + c["out"]}
-                for name, c in self.counts.items()
-                if (c["in"] + c["out"]) > 0 or len(self.counts) <= 6
-            ])
-            counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
-            return frame.from_ndarray(annotated_frame, format="bgr24")
+            if not cap.isOpened():
+                st.error("❌ Could not access camera device 0. Ensure camera is connected and not in use by another application.")
+            else:
+                status_placeholder.info("✅ Webcam active. Press 'Stop' button above to exit.")
+                
+                ret, first_frame = cap.read()
+                if ret:
+                    height = first_frame.shape[0]
+                    boundaries, counts, counted_ids, track_history, track_state = make_tracker_state(
+                        height, vehicle_classes, inbound_ratio=inbound_ratio, outbound_ratio=outbound_ratio
+                    )
+                    
+                    frame_count = 0
+                    start_time = time.time()
 
-    # Pass an iceServers configuration to establish remote network routing
-    webrtc_streamer(
-        key="traffic-webcam",
-        video_processor_factory=VideoProcessor,
-        media_stream_constraints={"video": True, "audio": False},
-        async_processing=True,
+                    while st.session_state.camera_running:
+                        ret, frame = cap.read()
+                        if not ret:
+                            status_placeholder.warning("⚠️ Lost camera feed connection. Check camera availability.")
+                            break
+
+                        annotated_frame = process_frame(
+                            model=model,
+                            frame=frame,
+                            vehicle_classes=vehicle_classes,
+                            conf_threshold=confidence,
+                            boundaries=boundaries,
+                            counts=counts,
+                            counted_ids=counted_ids,
+                            track_history=track_history,
+                            track_state=track_state,
+                            draw_trails=True,
+                            show_hud=True,
+                        )
+                        frame_placeholder.image(annotated_frame, channels="BGR", use_container_width=True)
+
+                        df_webcam = pd.DataFrame([
+                            {"Vehicle Type": name.upper(), "IN": c["in"], "OUT": c["out"], "Total": c["in"] + c["out"]}
+                            for name, c in counts.items()
+                            if (c["in"] + c["out"]) > 0 or len(counts) <= 6
+                        ])
+                        counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
+                        
+                        frame_count += 1
+                        if frame_count % 30 == 0:  # Update status every 30 frames
+                            elapsed = time.time() - start_time
+                            fps = frame_count / elapsed if elapsed > 0 else 0
+                            status_placeholder.info(f"✅ Webcam active · Frames: {frame_count} · FPS: {fps:.1f}")
+
+                cap.release()
+                status_placeholder.success("✅ Webcam stopped cleanly.")
+        except Exception as camera_err:
+            st.error(f"❌ Camera feed error: {camera_err}")
+            st.session_state.camera_running = False
+    else:
+        status_placeholder.write("Webcam is not active. Click 'Start' to begin.")
         
-        # ADD THIS EXPLICIT FIXED BLOCK HERE
-        rtc_configuration={
-            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
-        }
-    )
-
