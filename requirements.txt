@@ -8,3 +8,4 @@ python-multipart
 requests
 pandas
 imageio-ffmpeg
+streamlit-webrtc
