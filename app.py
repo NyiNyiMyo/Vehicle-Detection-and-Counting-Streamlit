@@ -907,7 +907,7 @@ if source == "Video Inference":
         original_name = uploaded_file.name
         base_name, extension = os.path.splitext(original_name)
 
-        output_path = f"outputs/{base_name}_processed.mp4"
+        output_path = f"/tmp/{base_name}_processed.mp4"
         Path("outputs").mkdir(exist_ok=True)
 
         st.info("🎬 Processing video - Live detection preview below:")
