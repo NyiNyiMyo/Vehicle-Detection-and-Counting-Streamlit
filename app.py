@@ -628,12 +628,12 @@ def process_video_file(
     # Transcode to H.264 web-compatible MP4
     out_dir = Path(output_path).parent
     out_dir.mkdir(parents=True, exist_ok=True)
-    ensure_web_compatible_video(raw_path, str(output_path))
-    if os.path.exists(raw_path):
-        try:
-            os.remove(raw_path)
-        except OSError:
-            pass
+    # ensure_web_compatible_video(raw_path, str(output_path))
+    # if os.path.exists(raw_path):
+    #     try:
+    #         os.remove(raw_path)
+    #     except OSError:
+    #         pass
 
     total_time = time.time() - pipeline_start
     avg_inference = (sum(inference_times) / len(inference_times)) if inference_times else 0.0
@@ -644,7 +644,7 @@ def process_video_file(
     }
 
     clean_counts = {k: dict(v) for k, v in counts.items()}
-    return clean_counts, stats
+    return raw_path, clean_counts, stats
 
 # Streamlit resource caching to prevent redundant model loading on reruns
 @st.cache_resource
@@ -1001,7 +1001,7 @@ if source == "Video Inference":
                 ])
                 table_placeholder.dataframe(df_live, use_container_width=True, hide_index=True)
 
-        counts, stats = process_video_file(
+        videooutputfile, counts, stats = process_video_file(
             input_path=input_path,
             output_path=output_path,
             model_name_or_path=selected_model,
@@ -1027,15 +1027,15 @@ if source == "Video Inference":
         res_v, res_t = st.columns([3, 2])
         with res_v:
             st.subheader("📼 Processed Video")
-            st.video(output_path)
+            st.video(videooutputfile)
 
             # SERVER-ONLY DOWNLOAD OPTION
-            if output_path.startswith("/tmp/"):
+            if output_path:
                 # Pass the open binary stream directly to data.
                 # Streamlit automatically manages the handle safely!
                 st.download_button(
                     label="📥 Download Results Video",
-                    data=open(output_path, "rb"),
+                    data=open(videooutputfile, "rb"),
                     file_name=f"{base_name}_processed.mp4",
                     mime="video/mp4",
                     use_container_width=True
