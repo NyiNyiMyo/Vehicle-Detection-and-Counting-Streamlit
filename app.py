@@ -1109,9 +1109,16 @@ else:
             counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
             return frame.from_ndarray(annotated_frame, format="bgr24")
 
+    # Pass an iceServers configuration to establish remote network routing
     webrtc_streamer(
         key="traffic-webcam",
         video_processor_factory=VideoProcessor,
         media_stream_constraints={"video": True, "audio": False},
-        async_processing=True
+        async_processing=True,
+        
+        # ADD THIS EXPLICIT FIXED BLOCK HERE
+        rtc_configuration={
+            "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+        }
     )
+
