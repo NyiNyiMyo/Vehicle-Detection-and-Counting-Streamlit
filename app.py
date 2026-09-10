@@ -899,15 +899,18 @@ if source == "Video Inference":
     uploaded_file = st.file_uploader("Upload video file", type=["mp4", "mov", "avi", "mkv"])
     start_button = st.button("🚀 Start Video Inference", type="primary", disabled=uploaded_file is None)
 
+    if uploaded_file is not None:
+        original_name = uploaded_file.name
+        base_name, extension = os.path.splitext(original_name)
+        output_path = f"/tmp/{base_name}_processed.mp4"
+    else:
+        output_path = None
+
     if start_button and uploaded_file is not None:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_input:
             tmp_input.write(uploaded_file.read())
             input_path = tmp_input.name
             
-        original_name = uploaded_file.name
-        base_name, extension = os.path.splitext(original_name)
-
-        output_path = f"/tmp/{base_name}_processed.mp4"
         Path("outputs").mkdir(exist_ok=True)
 
         st.info("🎬 Processing video - Live detection preview below:")
@@ -1021,7 +1024,9 @@ if source == "Video Inference":
                 os.remove(input_path)
             except OSError:
                 pass
-
+                
+    # If the processed file exists on the server disk, display it safely.
+    if output_path and os.path.exists(output_path):
         # Final video and download
         st.markdown("---")
         res_v, res_t = st.columns([3, 2])
