@@ -1066,7 +1066,7 @@ if source == "Video Inference":
 
 # ---------------- Webcam Inference mode ----------------
 else:
-    st.info("🎥 Live camera or webcam streaming (Device 0).")
+    st.info("🎥 Live camera or webcam streaming.")
     
     # Create session state for camera control
     if "camera_running" not in st.session_state:
@@ -1089,59 +1089,56 @@ else:
         try:
             model = load_model(selected_model)
             vehicle_classes = get_vehicle_classes(model)
-            cap = cv2.VideoCapture(0)
 
-            if not cap.isOpened():
-                st.error("❌ Could not access camera device 0. Ensure camera is connected and not in use by another application.")
+            # MINIMAL CHANGE 1: Use browser-native st.camera_input instead of cv2.VideoCapture(0)
+            # This works flawlessly on both local machines and cloud servers.
+            cam_file = st.camera_input("Take snapshot for tracking", label_visibility="collapsed")
+
+            if cam_file is None:
+                status_placeholder.info("📷 Waiting for camera capture stream... Click the button inside the camera box above.")
             else:
-                status_placeholder.info("✅ Webcam active. Press 'Stop' button above to exit.")
+                status_placeholder.info("✅ Frame captured. Processing tracking inference...")
                 
-                ret, first_frame = cap.read()
-                if ret:
-                    height = first_frame.shape[0]
-                    boundaries, counts, counted_ids, track_history, track_state = make_tracker_state(
-                        height, vehicle_classes, inbound_ratio=inbound_ratio, outbound_ratio=outbound_ratio
-                    )
-                    
-                    frame_count = 0
-                    start_time = time.time()
+                # MINIMAL CHANGE 2: Convert the browser image directly into standard OpenCV frame
+                file_bytes = np.asarray(bytearray(cam_file.read()), dtype=np.uint8)
+                frame = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
+                
+                height = frame.shape[0]
+                boundaries, counts, counted_ids, track_history, track_state = make_tracker_state(
+                    height, vehicle_classes, inbound_ratio=inbound_ratio, outbound_ratio=outbound_ratio
+                )
+                
+                frame_count = 0
+                start_time = time.time()
 
-                    while st.session_state.camera_running:
-                        ret, frame = cap.read()
-                        if not ret:
-                            status_placeholder.warning("⚠️ Lost camera feed connection. Check camera availability.")
-                            break
+                # MINIMAL CHANGE 3: Process the captured browser frame natively using exact existing code
+                annotated_frame = process_frame(
+                    model=model,
+                    frame=frame,
+                    vehicle_classes=vehicle_classes,
+                    conf_threshold=confidence,
+                    boundaries=boundaries,
+                    counts=counts,
+                    counted_ids=counted_ids,
+                    track_history=track_history,
+                    track_state=track_state,
+                    draw_trails=True,
+                    show_hud=True,
+                )
+                frame_placeholder.image(annotated_frame, channels="BGR", use_container_width=True)
 
-                        annotated_frame = process_frame(
-                            model=model,
-                            frame=frame,
-                            vehicle_classes=vehicle_classes,
-                            conf_threshold=confidence,
-                            boundaries=boundaries,
-                            counts=counts,
-                            counted_ids=counted_ids,
-                            track_history=track_history,
-                            track_state=track_state,
-                            draw_trails=True,
-                            show_hud=True,
-                        )
-                        frame_placeholder.image(annotated_frame, channels="BGR", use_container_width=True)
+                df_webcam = pd.DataFrame([
+                    {"Vehicle Type": name.upper(), "IN": c["in"], "OUT": c["out"], "Total": c["in"] + c["out"]}
+                    for name, c in counts.items()
+                    if (c["in"] + c["out"]) > 0 or len(counts) <= 6
+                ])
+                counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
+                
+                frame_count += 1
+                elapsed = time.time() - start_time
+                fps = frame_count / elapsed if elapsed > 0 else 0
+                status_placeholder.info(f"✅ Active · Frame processed · FPS: {fps:.1f}")
 
-                        df_webcam = pd.DataFrame([
-                            {"Vehicle Type": name.upper(), "IN": c["in"], "OUT": c["out"], "Total": c["in"] + c["out"]}
-                            for name, c in counts.items()
-                            if (c["in"] + c["out"]) > 0 or len(counts) <= 6
-                        ])
-                        counts_placeholder.dataframe(df_webcam, use_container_width=True, hide_index=True)
-                        
-                        frame_count += 1
-                        if frame_count % 30 == 0:  # Update status every 30 frames
-                            elapsed = time.time() - start_time
-                            fps = frame_count / elapsed if elapsed > 0 else 0
-                            status_placeholder.info(f"✅ Webcam active · Frames: {frame_count} · FPS: {fps:.1f}")
-
-                cap.release()
-                status_placeholder.success("✅ Webcam stopped cleanly.")
         except Exception as camera_err:
             st.error(f"❌ Camera feed error: {camera_err}")
             st.session_state.camera_running = False
