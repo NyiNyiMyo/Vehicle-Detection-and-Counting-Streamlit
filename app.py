@@ -899,18 +899,15 @@ if source == "Video Inference":
     uploaded_file = st.file_uploader("Upload video file", type=["mp4", "mov", "avi", "mkv"])
     start_button = st.button("🚀 Start Video Inference", type="primary", disabled=uploaded_file is None)
 
-    if uploaded_file is not None:
-        original_name = uploaded_file.name
-        base_name, extension = os.path.splitext(original_name)
-        output_path = f"/tmp/{base_name}_processed.mp4"
-    else:
-        output_path = None
-
     if start_button and uploaded_file is not None:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_input:
             tmp_input.write(uploaded_file.read())
             input_path = tmp_input.name
             
+        original_name = uploaded_file.name
+        base_name, extension = os.path.splitext(original_name)
+
+        output_path = f"/tmp/{base_name}_processed.mp4"
         Path("outputs").mkdir(exist_ok=True)
 
         st.info("🎬 Processing video - Live detection preview below:")
@@ -1024,31 +1021,25 @@ if source == "Video Inference":
                 os.remove(input_path)
             except OSError:
                 pass
-                
-    # If the processed file exists on the server disk, display it safely.
-    if output_path and os.path.exists(output_path):
+
         # Final video and download
         st.markdown("---")
         res_v, res_t = st.columns([3, 2])
         with res_v:
             st.subheader("📼 Processed Video")
-#             st.video(output_path)
+            st.video(output_path)
 
-        # We open the temporary file, pass it to Streamlit, and add the download button
-        with open(output_path, "rb") as video_file:
-            video_bytes = video_file.read()
-            
-            # Display the video player using the memory bytes
-            st.video(video_bytes)
-            
-            # Explicitly provide a reliable download widget
-            st.download_button(
-                label="📥 Download Results Video",
-                data=video_bytes,
-                file_name=f"{base_name}_processed.mp4",
-                mime="video/mp4",
-                use_container_width=True
-            )
+            # SERVER-ONLY DOWNLOAD OPTION
+            if output_path.startswith("/tmp/"):
+                # Pass the open binary stream directly to data.
+                # Streamlit automatically manages the handle safely!
+                st.download_button(
+                    label="📥 Download Results Video",
+                    data=open(output_path, "rb"),
+                    file_name=f"{base_name}_processed.mp4",
+                    mime="video/mp4",
+                    use_container_width=True
+                )
 
         with res_t:
             st.subheader("📥 Final Vehicle Analysis")
