@@ -850,7 +850,6 @@ with st.sidebar:
     frame_stride = stride_map.get(speed_mode, 2)
 
     st.markdown("---")
-#     st.markdown("#### 🛣️ Counting Boundaries")
     st.markdown('<h4 style="color: #38bdf8;">🛣️ Counting Boundaries</h4>', unsafe_allow_html=True)
 
     inbound_ratio = st.slider(
@@ -1034,7 +1033,7 @@ if source == "Video Inference":
                 # Pass the open binary stream directly to data.
                 # Streamlit automatically manages the handle safely!
                 st.download_button(
-                    label="📥 Download Results Video",
+                    label="📥 Download Results Video ( or )",
                     data=open(videooutputfile, "rb"),
                     file_name=f"{base_name}_processed.mp4",
                     mime="video/mp4",
@@ -1066,7 +1065,7 @@ if source == "Video Inference":
 
 # ---------------- Webcam Inference mode ----------------
 else:
-    st.info("🎥 Live camera or webcam streaming (Device 0).")
+    st.info("🎥 Live camera or webcam streaming (Device 0) Local only.")
     
     # Create session state for camera control
     if "camera_running" not in st.session_state:
